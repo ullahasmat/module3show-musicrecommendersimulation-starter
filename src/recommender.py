@@ -5,8 +5,17 @@ from dataclasses import dataclass
 
 # Columns that must be converted from CSV text into numbers so we can do math
 # with them later. Everything else (title, artist, genre, mood) stays a string.
-INT_FIELDS = ("id",)
-FLOAT_FIELDS = ("energy", "tempo_bpm", "valence", "danceability", "acousticness")
+INT_FIELDS = ("id", "popularity", "release_decade")
+FLOAT_FIELDS = (
+    "energy",
+    "tempo_bpm",
+    "valence",
+    "danceability",
+    "acousticness",
+    "vocal_presence",
+)
+# Columns holding several values in one cell, separated by semicolons.
+LIST_FIELDS = ("mood_tags",)
 
 # --- Algorithm Recipe (see README) -----------------------------------------
 # Weights live here so experiments only ever change one place.
@@ -15,11 +24,44 @@ W_MOOD = 1.5
 W_ENERGY = 1.0
 W_VALENCE = 1.0
 
+# Extended attributes. These only score when the listener actually asks for
+# them, so a profile using none of them behaves exactly as it did before.
+W_MOOD_TAGS = 1.5
+W_POPULARITY = 1.0
+W_DECADE = 1.0
+W_VOCAL = 1.0
+W_LANGUAGE = 1.0
+
 # Width of the Gaussian used for numeric closeness. Smaller = pickier about
 # hitting the target exactly.
 SIGMA = 0.25
 
-MAX_SCORE = W_GENRE + W_MOOD + W_ENERGY + W_VALENCE  # 5.5
+# Which preference key switches on which term, and what it is worth. Used to
+# work out the maximum a given profile could possibly score.
+TERM_WEIGHTS = {
+    "genre": W_GENRE,
+    "mood": W_MOOD,
+    "target_energy": W_ENERGY,
+    "target_valence": W_VALENCE,
+    "mood_tags": W_MOOD_TAGS,
+    "target_popularity": W_POPULARITY,
+    "favorite_decade": W_DECADE,
+    "target_vocal": W_VOCAL,
+    "language": W_LANGUAGE,
+}
+
+MAX_SCORE = W_GENRE + W_MOOD + W_ENERGY + W_VALENCE  # 5.5, the four core terms
+
+
+def max_score(user_prefs: Dict) -> float:
+    """
+    The highest score this particular profile could reach.
+
+    A listener who only fills in a few preferences is scored on fewer terms, so
+    comparing their results against the full 5.5 would make every song look
+    worse than it is. The ceiling has to follow the profile.
+    """
+    return sum(weight for key, weight in TERM_WEIGHTS.items() if key in user_prefs)
 
 # How a reason that earned no points ends. Used to filter those out when
 # summarising a recommendation.
@@ -126,6 +168,8 @@ def load_songs(csv_path: str) -> List[Dict]:
                     song[field] = int(song[field])
                 for field in FLOAT_FIELDS:
                     song[field] = float(song[field])
+                for field in LIST_FIELDS:
+                    song[field] = [t.strip() for t in song[field].split(";") if t.strip()]
                 songs.append(song)
     except FileNotFoundError:
         raise FileNotFoundError(
@@ -205,6 +249,58 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
             f"{field} {song[field]:.2f} {nearness} your {target:.2f} (+{points:.2f})"
         )
 
+    # --- Extended attributes -----------------------------------------------
+    # Each of these only fires when the listener asked for it, so profiles that
+    # ignore them score exactly as they did before these were added.
+
+    if "mood_tags" in user_prefs:
+        wanted = {t.lower() for t in user_prefs["mood_tags"]}
+        have = {t.lower() for t in song["mood_tags"]}
+        shared = wanted & have
+        # Fraction of what the listener asked for that this song actually has.
+        points = W_MOOD_TAGS * (len(shared) / len(wanted)) if wanted else 0.0
+        score += points
+        if shared:
+            reasons.append(f"mood tags: {', '.join(sorted(shared))} (+{points:.2f})")
+        else:
+            reasons.append(f"no matching mood tags (+0.00)")
+
+    if "target_popularity" in user_prefs:
+        target = user_prefs["target_popularity"]
+        # Popularity is 0-100 while closeness expects 0-1, so scale both down.
+        points = W_POPULARITY * closeness(song["popularity"] / 100, target / 100)
+        score += points
+        reasons.append(
+            f"popularity {song['popularity']} vs your {target} (+{points:.2f})"
+        )
+
+    if "favorite_decade" in user_prefs:
+        target = user_prefs["favorite_decade"]
+        gap = abs(song["release_decade"] - target)
+        match = 1.0 if gap == 0 else (0.5 if gap <= 10 else 0.0)
+        points = W_DECADE * match
+        score += points
+        if match:
+            reasons.append(f"from the {song['release_decade']}s (+{points:.2f})")
+        else:
+            reasons.append(f"different era: {song['release_decade']}s (+0.00)")
+
+    if "target_vocal" in user_prefs:
+        target = user_prefs["target_vocal"]
+        points = W_VOCAL * closeness(song["vocal_presence"], target)
+        score += points
+        style = "vocal-heavy" if song["vocal_presence"] >= 0.5 else "mostly instrumental"
+        reasons.append(f"{style} ({song['vocal_presence']:.2f}) (+{points:.2f})")
+
+    if "language" in user_prefs:
+        match = 1.0 if user_prefs["language"].lower() == song["language"].lower() else 0.0
+        points = W_LANGUAGE * match
+        score += points
+        if match:
+            reasons.append(f"language: {song['language']} (+{points:.2f})")
+        else:
+            reasons.append(f"different language: {song['language']} (+0.00)")
+
     return score, reasons
 
 def summarize_reasons(reasons: List[str], limit: int = 3) -> str:
@@ -221,7 +317,13 @@ def summarize_reasons(reasons: List[str], limit: int = 3) -> str:
     return "; ".join(earned[:limit])
 
 
-def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
+def recommend_songs(
+    user_prefs: Dict,
+    songs: List[Dict],
+    k: int = 5,
+    artist_penalty: float = 0.0,
+    genre_penalty: float = 0.0,
+) -> List[Tuple[Dict, float, str]]:
     """
     Ranks the whole catalog for one user and returns the best k songs.
 
@@ -230,6 +332,11 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tup
     what actually gets shown. Some of those decisions are impossible to make
     one song at a time - whether to show a second song by an artist depends on
     what is already in the list, which score_song() cannot see.
+
+    The two penalties are the clearest example of that. Each subtracts points
+    from a song for every song ALREADY CHOSEN that shares its artist or genre,
+    so the cost of repetition grows as a list gets more one-note. Both default
+    to 0.0, which leaves ranking purely by merit.
 
     Returns a list of (song, score, explanation) tuples, highest score first.
     Required by src/main.py
@@ -253,4 +360,32 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tup
         )
     )
 
-    return scored[:k]
+    if not (artist_penalty or genre_penalty):
+        return scored[:k]
+
+    # With penalties on, the list has to be built one pick at a time: a song's
+    # adjusted score depends on what has already been chosen, so it cannot be
+    # known before the picks above it are settled.
+    chosen: List[Tuple[Dict, float, str]] = []
+    remaining = list(scored)
+
+    while remaining and len(chosen) < k:
+        artists = [s["artist"] for s, _, _ in chosen]
+        genres = [s["genre"] for s, _, _ in chosen]
+
+        best_index, best_adjusted, best_penalty = None, None, 0.0
+        for i, (song, score, _) in enumerate(remaining):
+            penalty = (
+                artist_penalty * artists.count(song["artist"])
+                + genre_penalty * genres.count(song["genre"])
+            )
+            adjusted = score - penalty
+            if best_adjusted is None or adjusted > best_adjusted:
+                best_index, best_adjusted, best_penalty = i, adjusted, penalty
+
+        song, score, explanation = remaining.pop(best_index)
+        if best_penalty:
+            explanation += f"; repeat penalty -{best_penalty:.2f}"
+        chosen.append((song, best_adjusted, explanation))
+
+    return chosen

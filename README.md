@@ -11,7 +11,19 @@ Your goal is to:
 - Evaluate what your system gets right and wrong
 - Reflect on how this mirrors real world AI recommenders
 
-Replace this paragraph with your own summary of what your version does.
+**My version — VibeCheck 1.0** — is a command-line recommender over a 20-song catalog. You
+describe your taste as a genre, a mood, a target energy and a target positivity, and it scores
+every song out of 5.5 points, ranks them, and shows the top five *with the reason each one was
+chosen*. Those reasons are built as the score is calculated, so an explanation can never drift
+away from the arithmetic that produced the ranking — which is how I found most of the flaws
+documented below.
+
+The design separates **scoring** (judging one song alone) from **ranking** (deciding what the
+list should contain), because decisions like "don't show the same artist twice" depend on what
+has already been picked and cannot be made one song at a time.
+
+Beyond the core requirements it also has five extended attributes including multi-tag moods, a
+diversity penalty that can surface otherwise-unreachable songs, and a `tabulate` summary view.
 
 ---
 
@@ -104,6 +116,17 @@ gets calm music.
 | `tempo_bpm` | 58–152 | ❌ correlates 0.78 with energy |
 | `danceability` | 0.0–1.0 | ❌ correlates 0.62 with energy |
 | `acousticness` | 0.0–1.0 | ❌ correlates −0.87 with energy |
+
+Five further attributes were added later as a stretch feature. They only score when the
+listener actually asks for them, so profiles that ignore them behave exactly as before:
+
+| Field | Type | Preference key | Weight |
+|---|---|---|---|
+| `mood_tags` | 3 tags per song | `mood_tags` | 1.5 |
+| `popularity` | 0–100 | `target_popularity` | 1.0 |
+| `release_decade` | 1990–2020 | `favorite_decade` | 1.0 |
+| `vocal_presence` | 0.0–1.0 | `target_vocal` | 1.0 |
+| `language` | text | `language` | 1.0 |
 
 **`UserProfile`**
 
@@ -308,6 +331,41 @@ Your taste profile:
      - energy 0.88 close to your 0.80 (+0.95)
      - valence 0.91 close to your 0.75 (+0.81)
 ```
+
+### Summary table view
+
+The same recommendations also print as a table, with the reasons kept alongside each score so
+nothing has to be cross-referenced. This uses `tabulate`, and falls back to plain ASCII
+formatting if it isn't installed.
+
+```
+Deep Intense Rock
+
+┌─────┬──────────────────┬──────────────┬───────────┬────────────────────────────────────────────────┐
+│   # │ Song             │ Artist       │ Score     │ Why it was picked                              │
+├─────┼──────────────────┼──────────────┼───────────┼────────────────────────────────────────────────┤
+│   1 │ Storm Runner     │ Voltline     │ 5.45/5.50 │ genre match: rock (+2.00); mood match: intense │
+│     │                  │              │           │ (+1.50); energy 0.91 close to your 0.92        │
+│     │                  │              │           │ (+1.00)                                        │
+├─────┼──────────────────┼──────────────┼───────────┼────────────────────────────────────────────────┤
+│   2 │ Gym Hero         │ Max Pulse    │ 2.83/5.50 │ mood match: intense (+1.50); energy 0.93 close │
+│     │                  │              │           │ to your 0.92 (+1.00); valence 0.77 far from    │
+│     │                  │              │           │ your 0.40 (+0.33)                              │
+├─────┼──────────────────┼──────────────┼───────────┼────────────────────────────────────────────────┤
+│   3 │ Concrete Garden  │ Tunnel Verse │ 1.85/5.50 │ energy 0.78 close to your 0.92 (+0.85);        │
+│     │                  │              │           │ valence 0.42 close to your 0.40 (+1.00)        │
+├─────┼──────────────────┼──────────────┼───────────┼────────────────────────────────────────────────┤
+│   4 │ Night Drive Loop │ Neon Echo    │ 1.73/5.50 │ energy 0.75 close to your 0.92 (+0.79);        │
+│     │                  │              │           │ valence 0.49 close to your 0.40 (+0.94)        │
+├─────┼──────────────────┼──────────────┼───────────┼────────────────────────────────────────────────┤
+│   5 │ Iron Verdict     │ Ashfall Kin  │ 1.59/5.50 │ energy 0.97 close to your 0.92 (+0.98);        │
+│     │                  │              │           │ valence 0.15 somewhat near your 0.40 (+0.61)   │
+└─────┴──────────────────┴──────────────┴───────────┴────────────────────────────────────────────────┘
+```
+
+Seeing all five rows together makes the drop-off obvious in a way the one-song-at-a-time view
+hides: 5.45 to 2.83 to 1.59. Only the first row is a real match, and the table makes that
+visible at a glance.
 
 ### Does this match what I expected?
 
@@ -663,15 +721,27 @@ made the lofi list slightly worse, and it left the actual defect untouched.
 
 ## Limitations and Risks
 
-Summarize some limitations of your recommender.
+The full analysis is in the [**Model Card**](model_card.md#6-limitations-and-bias). The short
+version, in order of how much each one actually cost me:
 
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
-
-You will go deeper on this in your model card.
+- **Mood words are compared as strings, not meanings.** `angry` and `intense` score as
+  complete strangers, which pushed the heaviest song in the catalog down to fifth place for a
+  listener who asked for heavy music. **No weight can fix this** — a term scoring zero stays
+  zero however much it is worth. Adding `mood_tags` is what solved it.
+- **It never signals when it is unsure.** A 5.50 and a 1.59 print identically. Once the real
+  matches run out it pads the list to five and says nothing about it.
+- **15% of the catalog is unreachable.** Three songs never appeared for any of the six
+  listeners I tested. A content-based system cannot surface music nobody explicitly asked for.
+- **My "fair" genre rule depends on punctuation.** A `pop` fan gets partial credit for
+  `indie pop`, but a fan typing `hip hop` gets nothing for `hip-hop`, because the rule splits
+  on spaces.
+- **Mid-range listeners get near-random results.** Closeness is symmetric, so a target in the
+  middle of the range cannot prefer either extreme. One test profile produced a top five
+  spanning 0.30 points.
+- **It is a filter bubble by design.** It only recommends things resembling what you already
+  said you like, and cannot represent wanting two different things at different times.
+- **The catalog is tiny and invented.** 20 fictional songs, no lyrics, two languages, and no
+  idea what anyone actually listened to.
 
 ---
 

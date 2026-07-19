@@ -72,6 +72,18 @@ those while judging one song alone.
 - I made the sorting break ties deliberately. Otherwise two equally good songs are ordered by
   whichever one I happened to type into the spreadsheet first.
 
+### Extras added later
+
+Three optional things sit on top of the four measures above. All are **off unless asked for**,
+so the results in section 7 are exactly what the basic version produces.
+
+- **Five more attributes** a listener can ask about: detailed mood tags, popularity, decade,
+  how much singing there is, and language. Each adds its own points, and the maximum possible
+  score rises to match, so a listener who fills in more preferences is still judged fairly.
+- **A diversity penalty** that takes points off a song for each already-chosen song sharing
+  its artist or genre. Explained in section 6.
+- **A table view** of the results, so the reasons sit next to the scores instead of below them.
+
 ---
 
 ## 4. Data
@@ -79,9 +91,19 @@ those while judging one song alone.
 The collection has **20 songs** in a spreadsheet file. The starter came with 10 and I wrote
 10 more.
 
-Each song lists its title, artist, genre, mood, and five numbers between 0 and 1 describing
-its energy, tempo, positivity, danceability, and how acoustic it sounds. The songs and artists
-are invented, not real.
+Each song has 15 pieces of information. The songs and artists are invented, not real.
+
+| What it records | Column | Range |
+|---|---|---|
+| Identity | `id`, `title`, `artist` | text |
+| Style | `genre`, `mood` | text |
+| Sound | `energy`, `valence`, `danceability`, `acousticness` | 0.0 – 1.0 |
+| Speed | `tempo_bpm` | 58 – 152 |
+| How well known | `popularity` | 0 – 100 |
+| Era | `release_decade` | 1990 – 2020 |
+| Singing vs instrumental | `vocal_presence` | 0.0 – 1.0 |
+| Detailed feelings | `mood_tags` | three tags per song |
+| Language | `language` | english, spanish, instrumental |
 
 There are 14 genres and 14 moods. Nine of the genres have only one song.
 
@@ -95,13 +117,20 @@ entirely on a computer, and a metal song that is slow but crushing.
 I also added genuinely sad music. The starter's gloomiest song was only neutral, so a listener
 asking for melancholy music could not actually be served.
 
+Later I added the last five columns in the table above. The one that mattered most was
+`mood_tags`, because letting a song carry several feelings at once is what finally fixed the
+worst bug in the system (see section 6). When I added them I checked whether they were
+genuinely new information rather than repeats of what I already had — `popularity` initially
+correlated with energy at +0.66, so I rewrote those values until it dropped to +0.30.
+
 ### What is missing
 
-Plenty. There are no lyrics and no languages other than English. Nothing captures whether a
-song has vocals, or whether you grew up with it — and familiarity is a huge part of why people
-love songs. Whole traditions are absent: no country, no reggae, no classical beyond one piece,
-nothing non-Western. With 20 songs, most genres have one or two examples, so "the best jazz
-song for you" really means "the only jazz song."
+Plenty. There are no lyrics, so nothing knows what a song is actually about. Nothing records
+whether you grew up with a song, and familiarity is a huge part of why people love music.
+Only two languages appear, and one of those is really "no words at all". Whole traditions are
+absent: no country, no reggae, no hip-hop beyond two tracks, nothing from outside Europe and
+the Americas. With 20 songs, most genres have one or two examples, so "the best jazz song for
+you" really means "the only jazz song."
 
 ---
 
@@ -194,6 +223,63 @@ Give moods the same partial credit that genres already get, using synonym cluste
 than exact strings. This is the one change with direct evidence behind it: it is the only fix
 that would move *Iron Verdict* to where it belongs, and no amount of weight tuning can
 substitute for it.
+
+---
+
+### A fairness feature I added: the diversity penalty
+
+Two of the problems above — a small number of songs taking every slot, and 15% of the
+collection being unreachable — come from the same cause. Ranking purely by score means the
+best-matching songs win *every* position, even when they are nearly the same song.
+
+So I added a rule that subtracts points from a song for each song **already chosen** that
+shares its artist or its genre. The important detail is "already chosen": the penalty depends
+on what is above it in the list, so it cannot be part of a song's own score. It has to live in
+the ranking step. This is the clearest example of why scoring and ranking are separate.
+
+Here is the same listener at three settings:
+
+```
+OFF (default)
+   5.50  Library Rain          Paper Lanterns  lofi
+   5.46  Midnight Coding       LoRoom          lofi
+   3.98  Focus Flow            LoRoom          lofi
+   3.42  Spacewalk Thoughts    Orbit Bloom     ambient
+   1.87  Coffee Shop Stories   Slow Stereo     jazz
+
+ARTIST PENALTY 1.0
+   5.50  Library Rain          Paper Lanterns  lofi
+   5.46  Midnight Coding       LoRoom          lofi
+   3.42  Spacewalk Thoughts    Orbit Bloom     ambient
+   2.98  Focus Flow            LoRoom          lofi     <- LoRoom's second song, demoted
+   1.87  Coffee Shop Stories   Slow Stereo     jazz
+
+ARTIST PENALTY 1.0 + GENRE PENALTY 0.8
+   5.50  Library Rain          Paper Lanterns  lofi
+   4.66  Midnight Coding       LoRoom          lofi
+   3.42  Spacewalk Thoughts    Orbit Bloom     ambient
+   1.87  Coffee Shop Stories   Slow Stereo     jazz
+   1.78  Saltwater Vows        Amaya Cruz      r&b      <- previously unreachable
+```
+
+**How this improves fairness.** With the penalty off, the top three are all lofi and two are
+by the same artist. Turning on the artist penalty pushes LoRoom's second song below a
+different artist who scored lower — the listener still gets it, just not twice in a row.
+Adding the genre penalty goes further and surfaces *Saltwater Vows*, which is one of the three
+songs that had **never appeared for any of the six listeners I tested**. A song that was
+effectively invisible became reachable.
+
+That is the fairness argument in a sentence: without this, being slightly worse on score means
+never being heard at all, no matter how many people are listening. The penalty changes the
+question from "which songs match best" to "which songs match best *that I have not already
+said*".
+
+**What it costs.** This is a genuine trade-off, not a free improvement. Every song promoted by
+the penalty is, by definition, a worse match than the one it displaced — *Saltwater Vows* at
+1.78 is not what a lofi listener asked for. Pushed too hard, the rule stops serving the
+listener in order to serve the catalog. That is why it is **off by default** and set per
+request rather than baked into the score: it is a decision about what a list is *for*, and
+that is not something a scoring function should quietly decide on everyone's behalf.
 
 ---
 

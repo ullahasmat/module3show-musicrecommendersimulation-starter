@@ -261,18 +261,80 @@ You can add more tests in `tests/test_recommender.py`.
 
 ## Sample Recommendation Output
 
-Paste a sample of your recommender's output here as a text block so a reader can see what it produces:
+Run with `python -m src.main` from the project root.
 
 ```
-# e.g.:
-# User profile: genre=indie, mood=chill, energy=low
-# Recommendations:
-#   1. ...
-#   2. ...
-#   3. ...
+====================================================================
+  MUSIC RECOMMENDER SIMULATION
+====================================================================
+Loaded songs: 20
+
+Your taste profile:
+    genre            pop
+    mood             happy
+    target_energy    0.80
+    target_valence   0.75
+
+--------------------------------------------------------------------
+  Top 5 recommendations
+--------------------------------------------------------------------
+
+1. Sunrise City - Neon Echo
+   score 5.43 / 5.50  [####################]
+     - genre match: pop (+2.00)
+     - mood match: happy (+1.50)
+     - energy 0.82 close to your 0.80 (+1.00)
+
+2. Rooftop Lights - Indigo Parade
+   score 4.46 / 5.50  [################....]
+     - related genre: indie pop ~ pop (+1.00)
+     - mood match: happy (+1.50)
+     - energy 0.76 close to your 0.80 (+0.99)
+
+3. Gym Hero - Max Pulse
+   score 3.87 / 5.50  [##############......]
+     - genre match: pop (+2.00)
+     - energy 0.93 close to your 0.80 (+0.87)
+     - valence 0.77 close to your 0.75 (+1.00)
+
+4. Late Bus Freestyle - Tunnel Verse
+   score 3.35 / 5.50  [############........]
+     - mood match: happy (+1.50)
+     - energy 0.66 close to your 0.80 (+0.85)
+     - valence 0.74 close to your 0.75 (+1.00)
+
+5. Fever Bloom - Solaris Kite
+   score 1.76 / 5.50  [######..............]
+     - energy 0.88 close to your 0.80 (+0.95)
+     - valence 0.91 close to your 0.75 (+0.81)
 ```
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or demo video link here -->
+### Does this match what I expected?
+
+Mostly yes, and the two places it surprised me are the interesting part.
+
+**#1 is exactly right.** *Sunrise City* is pop, happy, energy 0.82 against a target of 0.80.
+It scores 5.43 out of a possible 5.50, and the only reason it isn't perfect is that its
+valence (0.84) sits slightly above what I asked for. That is the system working as designed.
+
+**#2 proves the partial genre credit was worth adding.** *Rooftop Lights* is `indie pop`, not
+`pop`, so plain string matching would have scored it a flat zero on the heaviest term in the
+recipe. Instead it earns half credit and lands at #2, which is where a pop fan would
+genuinely want it. Without that rule it would have dropped below songs that match nothing.
+
+**#3 is where I disagree with my own system.** *Gym Hero* is pop with almost perfect energy
+and valence, but its mood is `intense` — it's a gym track, not a happy one. It still beats
+*Late Bus Freestyle*, which does match the requested mood, because a genre match (2.0) plus
+strong numbers outweighs a mood match (1.5). **This is the genre-over-mood bias I predicted
+in the plan, showing up in the very first run.** The system is behaving exactly as specified;
+I'm just no longer sure the specification is right.
+
+**#5 shows the catalog running dry.** Look at the gap between #4 (3.35) and #5 (1.76) — the
+score nearly halves. *Fever Bloom* matches neither genre nor mood; it earns its place purely
+by having roughly the right energy and valence. After four genuinely happy, upbeat songs are
+exhausted, the recommender is padding the list to reach k=5. **It gives no warning that this
+has happened** — the fifth slot looks the same as the first, just with a smaller number.
+A real system would either stop early or admit it was reaching.
 
 ---
 

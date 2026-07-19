@@ -677,14 +677,100 @@ You will go deeper on this in your model card.
 
 ## Reflection
 
-Read and complete `model_card.md`:
+Full write-up of the system's limitations lives in the [**Model Card**](model_card.md). This
+section is about the process of building it.
 
-[**Model Card**](model_card.md)
+### My biggest learning moment
 
-Write 1 to 2 paragraphs here about what you learned:
+It was realising that my worst bug could not be fixed by tuning anything.
 
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
+I had spent real effort choosing weights — genre worth 2 points, mood worth 1.5 — and treated
+that as the main design work. Then I found the system ranking a bright pop workout track above
+a metal song for a listener who explicitly asked for dark, heavy music. My instinct was to
+adjust the weights. So I halved genre and doubled energy, and the wrong song moved up exactly
+one place.
+
+Then it clicked. The metal song scored **zero** on mood, because its label was `angry` and the
+listener typed `intense`. Zero multiplied by any weight is still zero. I could have set the
+mood weight to a hundred and changed nothing. **The bug was not in how much things counted, it
+was in how things were compared.** I had been about to spend an afternoon tuning numbers that
+could never have worked.
+
+That reframed what I think the hard part of these systems actually is. Choosing weights feels
+like the important decision because it involves numbers and judgement. But comparison rules —
+what counts as a match at all — silently decide far more, and they are easy to write without
+ever noticing you made a choice.
+
+### How AI helped, and where I had to check it
+
+The genuinely useful part was **analysis I would not have thought to run**. Asking it to check
+how my song attributes related to each other revealed that energy, tempo, danceability and
+acousticness were nearly the same measurement four times over — energy and acousticness moved
+together at −0.99, essentially a straight line. I would have happily scored all four and
+quietly made loudness four times more important than genre without ever seeing it in my own
+code. It was also fast at running the same experiment across many profiles at once, which is
+how the "three songs are never recommended" finding turned up.
+
+Where I had to push back:
+
+- **It let my documentation go stale.** Early on it wrote a −0.99 correlation into my README.
+  Then I expanded the dataset from 10 songs to 20 and the real figure became −0.87. The README
+  kept confidently stating the old number in three places. Nothing errored. Prose does not
+  fail a test, so a document can become wrong while the code stays right — I now re-check any
+  written claim after changing the data behind it.
+- **It wrote an explanation that contradicted its own maths.** One output read
+  `energy 0.97 far from your 0.80 (+0.79)` — "far from" next to a near-perfect score. The
+  wording had been derived from one calculation and the number from another. It looked
+  plausible enough that I nearly left it.
+- **My tests passed for the wrong reason.** `pytest` reported 2 passed the whole way through,
+  which felt like proof things worked. They were testing unimplemented placeholder methods and
+  happened to pass because the test's first song was the right answer by luck. A green tick is
+  not evidence.
+- **A suggestion that would have made things worse.** When expanding the dataset, the obvious
+  move was to add as many new genres as possible for variety. That would have left almost every
+  genre with a single song, which turns the genre score into a filter rather than a ranking. I
+  deliberately repeated genres instead.
+
+The pattern I noticed: AI was strongest at things I could immediately verify — calculations,
+running many cases, finding structure in data. It was least reliable at claims that stay true
+only as long as something else does not change.
+
+### What surprised me about how simple this is
+
+There is no learning in this system at all. It is four multiplications and a sort. Nothing is
+trained, nothing adapts, and it has never seen a single real listener.
+
+And yet the output feels like a recommendation. When it returned a perfect 5.50 match for the
+lofi listener, it genuinely looked like the system understood something about studying to
+quiet music. It does not. It compared two words and measured two distances.
+
+I think the feeling comes almost entirely from **the explanations and the ranking**, not the
+intelligence. Sorting things and giving reasons is enough to read as judgement. That is a
+slightly uncomfortable thing to learn, because it means a system can look thoughtful while
+being arithmetic — and if this much conviction comes from four multiplications, I should be
+much more careful about assuming a real recommender knows why it is suggesting something.
+
+The flip side is that the reasons are also what exposed every flaw. Because the system had to
+show its work, I could see the wrong song winning and understand why. A version that just
+listed five songs would have looked fine.
+
+### What I would try next
+
+**Fix the mood comparison**, since it is the one thing with hard evidence behind it. Grouping
+moods that mean roughly the same thing is a small change that moves a genuinely wrong result.
+
+**Make it admit uncertainty.** The system already knows the difference between a 5.50 and a
+1.59 and presents them identically. Stopping early instead of padding to five songs would be
+more honest than any ranking improvement.
+
+**Add a second ranking mode** — mood-first instead of genre-first — and compare them on the
+same listener. Most of my findings came from running the same thing two ways and looking at
+the difference, and that is the cheapest way to keep doing it.
+
+If I had longer, the thing I would most want is data the system currently cannot see: whether
+a listener skipped a song. Everything here is based on what someone *says* they like. Real
+systems mostly learn from what people actually do, and the gap between those two is probably
+where all the interesting behaviour lives.
 
 
 

@@ -1,61 +1,130 @@
 # 🎧 Model Card: Music Recommender Simulation
 
-## 1. Model Name  
+## 1. Model Name
 
-Give your model a short, descriptive name.  
-Example: **VibeFinder 1.0**  
+**VibeCheck 1.0**
 
----
-
-## 2. Intended Use  
-
-Describe what your recommender is designed to do and who it is for. 
-
-Prompts:  
-
-- What kind of recommendations does it generate  
-- What assumptions does it make about the user  
-- Is this for real users or classroom exploration  
+Every recommendation it makes comes with a "because" line, so you can always see why a song
+was picked.
 
 ---
 
-## 3. How the Model Works  
+## 2. Intended Use
 
-Explain your scoring approach in simple language.  
+### What it is for
 
-Prompts:  
+VibeCheck suggests songs from a small collection based on what a listener says they like.
+You describe your taste in four ways: a genre, a mood, how energetic you want the music, and
+how upbeat or gloomy you want it to feel. It then ranks every song and shows you the best
+five, along with the reason each one was chosen.
 
-- What features of each song are used (genre, energy, mood, etc.)  
-- What user preferences are considered  
-- How does the model turn those into a score  
-- What changes did you make from the starter logic  
+It was built for a class project. The point is to show how a recommender turns data into
+suggestions, and to make the reasoning visible instead of hiding it.
 
-Avoid code here. Pretend you are explaining the idea to a friend who does not program.
+### What it assumes about you
+
+It assumes you can describe your taste in words, that your taste is one consistent thing
+rather than several moods, and that you want more of what you already like. All three
+assumptions are wrong for real people, which is part of what makes it interesting to study.
+
+### What it should not be used for
+
+- **Real listeners on a real service.** It has 20 songs and no idea what anyone actually
+  played.
+- **Deciding which artists get promoted.** Some songs in my own collection can never be
+  recommended at all. Using this to decide who gets heard would quietly bury them.
+- **Any claim that it knows what is good.** It measures similarity to a description. It has
+  no opinion about quality.
+- **Anything where being confidently wrong matters.** It never signals when it is unsure.
 
 ---
 
-## 4. Data  
+## 3. How the Model Works
 
-Describe the dataset the model uses.  
+Think of it as a judge giving each song a score out of 5.5 points.
 
-Prompts:  
+Every song gets points for four things:
 
-- How many songs are in the catalog  
-- What genres or moods are represented  
-- Did you add or remove data  
-- Are there parts of musical taste missing in the dataset  
+- **Genre** — up to 2 points. Full marks if the genre matches exactly. Half marks if the two
+  genres share a word, so someone who likes "pop" gets partial credit for "indie pop".
+- **Mood** — 1.5 points if the mood matches exactly, nothing otherwise.
+- **Energy** — up to 1 point, based on how close the song is to the energy you asked for.
+- **Positivity** — up to 1 point, based on how close the song is to the mood level you asked
+  for, from gloomy to cheerful.
+
+The important idea with the last two is that **closer is better, not higher**. If you ask for
+calm music, a loud song loses points for being loud. A lot of simple recommenders get this
+wrong and just hand you the loudest song every time.
+
+Once every song has a score, they are sorted from best to worst and the top five are shown.
+Sorting is a separate step from scoring on purpose. Some decisions can only be made by looking
+at the whole list — like not showing you two songs by the same artist — and you cannot make
+those while judging one song alone.
+
+### What I changed from the starter
+
+- I added **positivity** as a fourth measure. The starter only looked at energy, which tells
+  you how loud a song is but not how it feels. Without it, someone asking for dark, heavy
+  music was offered a cheerful gym anthem.
+- I ignored three measures that came with the data — tempo, danceability, and how acoustic a
+  song is. I checked, and they mostly repeat what energy already tells you. Counting them
+  would have secretly made loudness four times more important than genre.
+- I made the sorting break ties deliberately. Otherwise two equally good songs are ordered by
+  whichever one I happened to type into the spreadsheet first.
 
 ---
 
-## 5. Strengths  
+## 4. Data
 
-Where does your system seem to work well  
+The collection has **20 songs** in a spreadsheet file. The starter came with 10 and I wrote
+10 more.
 
-Prompts:  
+Each song lists its title, artist, genre, mood, and five numbers between 0 and 1 describing
+its energy, tempo, positivity, danceability, and how acoustic it sounds. The songs and artists
+are invented, not real.
 
-- User types for which it gives reasonable results  
-- Any patterns you think your scoring captures correctly  
-- Cases where the recommendations matched your intuition  
+There are 14 genres and 14 moods. Nine of the genres have only one song.
+
+### What I added and why
+
+The original 10 songs had a hidden problem. Every loud song was electronic, and every quiet
+song was acoustic — with no exceptions. Real music is not like that. So I deliberately wrote
+songs that break the pattern: a folk song that is loud and strummed, a quiet song made
+entirely on a computer, and a metal song that is slow but crushing.
+
+I also added genuinely sad music. The starter's gloomiest song was only neutral, so a listener
+asking for melancholy music could not actually be served.
+
+### What is missing
+
+Plenty. There are no lyrics and no languages other than English. Nothing captures whether a
+song has vocals, or whether you grew up with it — and familiarity is a huge part of why people
+love songs. Whole traditions are absent: no country, no reggae, no classical beyond one piece,
+nothing non-Western. With 20 songs, most genres have one or two examples, so "the best jazz
+song for you" really means "the only jazz song."
+
+---
+
+## 5. Strengths
+
+**It works well for listeners with clear, specific taste.** When someone asks for something
+the collection actually contains, the results are good. The chill lofi listener got a perfect
+match — a song that hit every single thing they asked for.
+
+**It gives different people different music.** I tested six listeners and all six got a
+different song in first place. That is the basic test of whether a recommender is listening at
+all, and it passed.
+
+**It explains itself.** Every recommendation shows what earned points and how many. If a
+result looks wrong, you can see exactly why it happened rather than guessing. This turned out
+to matter more than I expected — it is how I found most of the problems in section 6.
+
+**It handles nonsense without breaking.** Asking for a genre that does not exist gives
+sensible music rather than an error or an empty list.
+
+**Closeness scoring behaves the way people actually talk.** When someone says "I want
+something calm," they mean calm — not "as little energy as possible." Scoring by distance to
+a target captures that, and it is the part of the design I am most confident was right.
 
 ---
 
@@ -222,25 +291,51 @@ label I decided was worth more.
 
 ---
 
-## 8. Future Work  
+## 8. Ideas for Improvement
 
-Ideas for how you would improve the model next.  
+**1. Teach it that moods can be synonyms.** This is the most important fix. Right now `angry`
+and `intense` are treated as completely unrelated words, which is why the heaviest song in the
+collection was ranked fifth for a listener who wanted heavy music. Grouping moods that mean
+roughly the same thing would fix it. I know weight tuning cannot, because I tried — a song
+scoring zero on mood stays at zero no matter how much the mood is worth.
 
-Prompts:  
+**2. Let it say when it is unsure.** The system already knows the difference between a great
+match and a weak one — 5.50 versus 1.59 — but prints both identically. It should stop early
+when nothing scores well, or at least label the weak ones. Right now it pads the list to five
+songs and says nothing about it, which makes a desperate guess look like a confident pick.
 
-- Additional features or preferences  
-- Better ways to explain recommendations  
-- Improving diversity among the top results  
-- Handling more complex user tastes  
+**3. Let people like more than one thing.** A listener can currently describe only one taste.
+Real people want loud music at the gym and quiet music while studying, and asking for the
+average of those gets you neither. Allowing several genres or moods per person would fix this,
+and it is a small change.
+
+Two smaller ones I would also do: compare genres in a way that is not confused by punctuation
+(a "hip hop" fan currently gets nothing for "hip-hop"), and add an artist limit so the same
+artist cannot take several spots in one list.
 
 ---
 
-## 9. Personal Reflection  
+## 9. Personal Reflection
 
-A few sentences about your experience.  
+The thing that surprised me most was how little the weights mattered. I spent real effort
+deciding whether genre should be worth 2 points and mood 1.5. Then I halved one and doubled
+another, and the same five songs came back for every listener — only their order moved. I had
+assumed tuning those numbers was the main job. It turned out the numbers mostly rearranged
+songs that were already going to be recommended.
 
-Prompts:  
+What actually decided the results was much less glamorous: whether two words matched exactly.
+The worst mistake in my system was not a bad weight, it was that `angry` and `intense` are
+different strings. A computer sees no relationship there at all, and no amount of tuning fixes
+it. That reframed the whole project for me — the interesting decisions were about how things
+get compared, not how much they get multiplied by.
 
-- What you learned about recommender systems  
-- Something unexpected or interesting you discovered  
-- How this changed the way you think about music recommendation apps  
+I also learned that a system can be wrong and confident at the same time, and that this is the
+default rather than an unusual failure. My recommender never once said "I am not sure." It
+handed over a barely-relevant song in exactly the same format as a perfect one. Nothing was
+broken; it simply had no way to express doubt unless I built one.
+
+It has changed how I read my own recommendations. When an app suggests something odd, I no
+longer assume it knows something I do not. It is far more likely that it matched a label
+rather than the music, or that it ran out of good options and kept going anyway. I am also
+more aware that the songs I never get shown are a real thing — three songs in my own tiny
+collection could not be recommended to anyone, and I only found out because I went looking.

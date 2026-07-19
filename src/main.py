@@ -41,29 +41,78 @@ def print_recommendations(recommendations: List[Tuple[Dict, float, str]]) -> Non
         print()
 
 
-def main() -> None:
-    songs = load_songs("data/songs.csv")
-
-    user_prefs = {
+# Three listeners who want clearly different things. If the recommender works,
+# these should produce three clearly different lists.
+PROFILES = {
+    "High-Energy Pop": {
         "genre": "pop",
         "mood": "happy",
         "target_energy": 0.80,
         "target_valence": 0.75,
-    }
+    },
+    "Chill Lofi": {
+        "genre": "lofi",
+        "mood": "chill",
+        "target_energy": 0.35,
+        "target_valence": 0.58,
+    },
+    "Deep Intense Rock": {
+        "genre": "rock",
+        "mood": "intense",
+        "target_energy": 0.92,
+        "target_valence": 0.40,
+    },
+}
+
+# Profiles built to break the scoring rather than to be served well. Each one
+# targets a specific weakness - see the README for what each is probing.
+EDGE_CASE_PROFILES = {
+    "Contradictory (quiet genre, loud target)": {
+        "genre": "classical",
+        "mood": "angry",
+        "target_energy": 0.95,
+        "target_valence": 0.20,
+    },
+    "Indecisive (no genre or mood, mid-range numbers)": {
+        "target_energy": 0.65,
+        "target_valence": 0.50,
+    },
+    "Unknown genre (nothing in the catalog matches)": {
+        "genre": "k-pop",
+        "mood": "happy",
+        "target_energy": 0.80,
+        "target_valence": 0.80,
+    },
+}
+
+
+def run_profile(name: str, user_prefs: dict, songs: List[Dict], k: int = 5) -> None:
+    """Scores the catalog for one profile and prints its top k."""
+    print("-" * WIDTH)
+    print(f"  PROFILE: {name}")
+    print("-" * WIDTH)
+    print_profile(user_prefs)
+    print(f"\n  Top {k}:\n")
+    print_recommendations(recommend_songs(user_prefs, songs, k=k))
+
+
+def main() -> None:
+    songs = load_songs("data/songs.csv")
 
     print("=" * WIDTH)
     print("  MUSIC RECOMMENDER SIMULATION")
     print("=" * WIDTH)
     print(f"Loaded songs: {len(songs)}\n")
-    print_profile(user_prefs)
 
-    k = 5
-    recommendations = recommend_songs(user_prefs, songs, k=k)
+    for name, prefs in PROFILES.items():
+        run_profile(name, prefs, songs, k=5)
 
-    print("\n" + "-" * WIDTH)
-    print(f"  Top {k} recommendations")
-    print("-" * WIDTH + "\n")
-    print_recommendations(recommendations)
+    print("=" * WIDTH)
+    print("  EDGE CASES - trying to break the scoring")
+    print("=" * WIDTH + "\n")
+
+    for name, prefs in EDGE_CASE_PROFILES.items():
+        run_profile(name, prefs, songs, k=3)
 
 
 if __name__ == "__main__":

@@ -340,11 +340,324 @@ A real system would either stop early or admit it was reaching.
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+I ran the recommender against six profiles: three ordinary listeners, and three built
+specifically to break it. All six run every time with `python -m src.main`.
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+### Profile 1 — High-Energy Pop
+
+```
+Your taste profile:
+    genre            pop
+    mood             happy
+    target_energy    0.80
+    target_valence   0.75
+
+1. Sunrise City - Neon Echo
+   score 5.43 / 5.50  [####################]
+     - genre match: pop (+2.00)
+     - mood match: happy (+1.50)
+     - energy 0.82 close to your 0.80 (+1.00)
+
+2. Rooftop Lights - Indigo Parade
+   score 4.46 / 5.50  [################....]
+     - related genre: indie pop ~ pop (+1.00)
+     - mood match: happy (+1.50)
+     - energy 0.76 close to your 0.80 (+0.99)
+
+3. Gym Hero - Max Pulse
+   score 3.87 / 5.50  [##############......]
+     - genre match: pop (+2.00)
+     - energy 0.93 close to your 0.80 (+0.87)
+     - valence 0.77 close to your 0.75 (+1.00)
+
+4. Late Bus Freestyle - Tunnel Verse
+   score 3.35 / 5.50  [############........]
+     - mood match: happy (+1.50)
+     - energy 0.66 close to your 0.80 (+0.85)
+     - valence 0.74 close to your 0.75 (+1.00)
+
+5. Fever Bloom - Solaris Kite
+   score 1.76 / 5.50  [######..............]
+     - energy 0.88 close to your 0.80 (+0.95)
+     - valence 0.91 close to your 0.75 (+0.81)
+```
+
+### Profile 2 — Chill Lofi
+
+```
+Your taste profile:
+    genre            lofi
+    mood             chill
+    target_energy    0.35
+    target_valence   0.58
+
+1. Library Rain - Paper Lanterns
+   score 5.50 / 5.50  [####################]
+     - genre match: lofi (+2.00)
+     - mood match: chill (+1.50)
+     - energy 0.35 close to your 0.35 (+1.00)
+
+2. Midnight Coding - LoRoom
+   score 5.46 / 5.50  [####################]
+     - genre match: lofi (+2.00)
+     - mood match: chill (+1.50)
+     - energy 0.42 close to your 0.35 (+0.96)
+
+3. Focus Flow - LoRoom
+   score 3.98 / 5.50  [##############......]
+     - genre match: lofi (+2.00)
+     - energy 0.40 close to your 0.35 (+0.98)
+     - valence 0.59 close to your 0.58 (+1.00)
+
+4. Spacewalk Thoughts - Orbit Bloom
+   score 3.42 / 5.50  [############........]
+     - mood match: chill (+1.50)
+     - energy 0.28 close to your 0.35 (+0.96)
+     - valence 0.65 close to your 0.58 (+0.96)
+
+5. Coffee Shop Stories - Slow Stereo
+   score 1.87 / 5.50  [#######.............]
+     - energy 0.37 close to your 0.35 (+1.00)
+     - valence 0.71 close to your 0.58 (+0.87)
+```
+
+### Profile 3 — Deep Intense Rock
+
+```
+Your taste profile:
+    genre            rock
+    mood             intense
+    target_energy    0.92
+    target_valence   0.40
+
+1. Storm Runner - Voltline
+   score 5.45 / 5.50  [####################]
+     - genre match: rock (+2.00)
+     - mood match: intense (+1.50)
+     - energy 0.91 close to your 0.92 (+1.00)
+
+2. Gym Hero - Max Pulse
+   score 2.83 / 5.50  [##########..........]
+     - mood match: intense (+1.50)
+     - energy 0.93 close to your 0.92 (+1.00)
+     - valence 0.77 far from your 0.40 (+0.33)
+
+3. Concrete Garden - Tunnel Verse
+   score 1.85 / 5.50  [#######.............]
+     - energy 0.78 close to your 0.92 (+0.85)
+     - valence 0.42 close to your 0.40 (+1.00)
+
+4. Night Drive Loop - Neon Echo
+   score 1.73 / 5.50  [######..............]
+     - energy 0.75 close to your 0.92 (+0.79)
+     - valence 0.49 close to your 0.40 (+0.94)
+
+5. Iron Verdict - Ashfall Kin
+   score 1.59 / 5.50  [######..............]
+     - energy 0.97 close to your 0.92 (+0.98)
+     - valence 0.15 somewhat near your 0.40 (+0.61)
+```
+
+### How the three compare
+
+The three lists share **almost nothing**, which is the first thing worth checking — a
+recommender that returns similar songs regardless of who is asking isn't recommending, it's
+just reporting which songs are generically popular. Each profile got its own genre's songs at
+the top, each #1 scored above 5.4 out of 5.5, and the only song appearing in two lists is
+*Gym Hero*.
+
+The **Chill Lofi** profile produced the only **perfect 5.50** in the whole experiment.
+*Library Rain* is lofi, chill, and its energy is 0.35 against a target of 0.35 — an exact hit
+on every term. Right behind it, *Midnight Coding* scored **5.46**. A 0.04 gap is not a real
+preference, and this is exactly the tie the explicit tie-break rule exists for; without it,
+CSV row order would have silently decided which one a user sees first.
+
+Each list also shows the same **cliff** after the genuine matches run out — 3.35 to 1.76 for
+pop, 3.42 to 1.87 for lofi, 2.83 to 1.85 for rock. Everything below the cliff is padding to
+reach `k=5`, and nothing in the output says so.
+
+### The rock profile exposes a real bug
+
+Look at positions 2 and 5. A listener who asked for **intense music at valence 0.40** — dark,
+heavy, aggressive — was given:
+
+- **#2 *Gym Hero***, a bright major-key pop workout track at valence 0.77
+- **#5 *Iron Verdict***, metal, valence 0.15, energy 0.97 — the single most intense song in
+  the catalog and almost exactly what they described
+
+*Iron Verdict* loses because its mood is labelled `angry` while the user typed `intense`.
+Those are near-synonyms to any human, but exact string matching treats them as complete
+strangers, so it forfeits the entire 1.5-point mood term. *Gym Hero* collects that 1.5 for
+matching the word, and its badly wrong valence only costs it 0.67.
+
+**A word mismatch outweighed being musically correct.** I flagged this risk in the plan
+before writing the code — near-synonym moods scored as unrelated — but I did not expect it to
+push the best answer down to fifth place. The fix is the same partial-credit idea already
+used for genres (`pop` ~ `indie pop`), applied to moods.
+
+### Edge case 1 — Contradictory profile
+
+Asking for the `classical` genre and an energy of 0.95. Nothing in the catalog is both.
+
+```
+Your taste profile:
+    genre            classical
+    mood             angry
+    target_energy    0.95
+    target_valence   0.20
+
+1. Iron Verdict - Ashfall Kin
+   score 3.48 / 5.50  [#############.......]
+     - mood match: angry (+1.50)
+     - energy 0.97 close to your 0.95 (+1.00)
+     - valence 0.15 close to your 0.20 (+0.98)
+
+2. Nocturne in Grey - Elena Vasari
+   score 2.92 / 5.50  [###########.........]
+     - genre match: classical (+2.00)
+     - energy 0.22 far from your 0.95 (+0.01)
+     - valence 0.31 close to your 0.20 (+0.91)
+```
+
+Ask for loud classical music and you get **metal**. The one genuinely classical song is
+second, and its energy term contributes **+0.01** — the Gaussian falloff is doing its job,
+correctly ruling that 0.22 is nowhere near 0.95.
+
+I actually think the system resolved this the *right* way: it decided the sound the listener
+described mattered more than the label they typed. But it resolved a genuine contradiction
+silently, and a user who sees "metal" at the top of a classical search has no way to know
+their request was impossible. **The failure isn't the ranking, it's that nothing was said
+about it.**
+
+### Edge case 2 — Indecisive profile
+
+No genre, no mood, and both numbers in the middle of the range.
+
+```
+Your taste profile:
+    target_energy    0.65
+    target_valence   0.50
+
+1. Night Drive Loop - Neon Echo   score 1.92 / 5.50
+2. Concrete Garden - Tunnel Verse score 1.82 / 5.50
+3. Dust and Diesel - Hollis Ray   score 1.80 / 5.50
+```
+
+The top five span **0.30 points total**. That's not a ranking, it's a five-way tie with
+decimals attached, and the ordering is effectively decided by the tie-break rules rather than
+by taste. This confirms the prediction in the plan: because closeness is symmetric, a target
+in the middle of the range is equidistant from both extremes and cannot prefer either.
+
+**The system gives no signal that this happened.** Score 1.92 is printed with exactly the same
+confidence as the 5.50 earlier — the numbers are far apart, but the presentation isn't.
+
+### Edge case 3 — Unknown genre
+
+A genre that simply does not exist in the catalog.
+
+```
+Your taste profile:
+    genre            k-pop
+    mood             happy
+    target_energy    0.80
+    target_valence   0.80
+
+1. Rooftop Lights - Indigo Parade   score 3.49 / 5.50
+2. Sunrise City - Neon Echo         score 3.48 / 5.50
+3. Late Bus Freestyle - Tunnel Verse score 3.33 / 5.50
+```
+
+This one degrades gracefully — no crash, no empty list. With the genre term zeroed out for
+every song, mood and the numbers take over and the results are reasonable upbeat pop, which is
+a defensible answer for a k-pop fan.
+
+Two things stand out. **#1 and #2 are 0.01 apart**, so the tie-break rule is effectively
+choosing the top recommendation. And the order **flipped** relative to Profile 1 — with genre
+removed, *Rooftop Lights* (valence 0.81) edges out *Sunrise City* (0.84) against the 0.80
+target. Removing one term reshuffled the top, which is a reminder of how little separates
+these two songs in the first place.
+
+### Summary of what the experiments changed my mind about
+
+| I expected | What actually happened |
+|---|---|
+| Genre would dominate everything | Genre sorts songs into tiers, but **mood word-matching** caused the worst error |
+| The contradictory profile would produce nonsense | It resolved sensibly toward sound over label — it just never said so |
+| Mid-range targets would be slightly vague | Discrimination collapsed to a 0.30 spread — effectively arbitrary |
+| An unknown genre might break something | It degraded gracefully; the tie-break quietly picks the winner |
+
+---
+
+## Sensitivity Experiment: halving genre, doubling energy
+
+I changed two weights at once — `W_GENRE` from 2.0 to 1.0 and `W_ENERGY` from 1.0 to 2.0 —
+and re-ranked all three main profiles. The maximum possible score stays 5.5, so the numbers
+are still directly comparable to the baseline.
+
+```
+=== High-Energy Pop ===
+#   BASELINE g2.0 e1.0              EXPERIMENT g1.0 e2.0
+1   Sunrise City (5.43)             Sunrise City (5.43)
+2   Rooftop Lights (4.46)           Rooftop Lights (4.95)
+3   Gym Hero (3.87)                 Late Bus Freestyle (4.21)    <-- CHANGED
+4   Late Bus Freestyle (3.35)       Gym Hero (3.74)              <-- CHANGED
+5   Fever Bloom (1.76)              Fever Bloom (2.71)
+
+=== Chill Lofi ===
+1   Library Rain (5.50)             Library Rain (5.50)
+2   Midnight Coding (5.46)          Midnight Coding (5.42)
+3   Focus Flow (3.98)               Spacewalk Thoughts (4.38)    <-- CHANGED
+4   Spacewalk Thoughts (3.42)       Focus Flow (3.96)            <-- CHANGED
+5   Coffee Shop Stories (1.87)      Coffee Shop Stories (2.87)
+
+=== Deep Intense Rock ===
+1   Storm Runner (5.45)             Storm Runner (5.45)
+2   Gym Hero (2.83)                 Gym Hero (3.83)
+3   Concrete Garden (1.85)          Concrete Garden (2.71)
+4   Night Drive Loop (1.73)         Iron Verdict (2.57)          <-- CHANGED
+5   Iron Verdict (1.59)             Night Drive Loop (2.52)      <-- CHANGED
+```
+
+### More accurate, or just different?
+
+**Mostly just different — with one genuine improvement.**
+
+The same five songs come back for every profile. Not one song entered or left any list; only
+the order inside it moved, and **#1 never changed once**. Halving the heaviest weight in the
+recipe and doubling another could not alter *which* songs get recommended. This matches what
+I found when planning the recipe: the genre term sorts songs into coarse tiers (exact match /
+partial / none) and the numeric terms only decide order *within* a tier. Changing the weights
+stretches the scores without moving anything across a tier boundary.
+
+**The one real improvement is in the pop list.** *Late Bus Freestyle* moved above *Gym Hero*.
+That is the correct order and I said so before running this experiment: *Gym Hero* is pop but
+its mood is `intense`, while *Late Bus Freestyle* actually matches the requested `happy`. With
+genre at 2.0 the genre match outweighed the mood match; at 1.0 it no longer does. **Lowering
+the genre weight fixed the genre-over-mood bias I predicted in the plan.**
+
+The other movements are not improvements. *Spacewalk Thoughts* rising above *Focus Flow* for
+the lofi listener is arguably worse — *Focus Flow* is actually lofi, *Spacewalk Thoughts* is
+ambient, and the swap happens only because doubling energy rewards ambient's 0.28 against a
+target of 0.35. That is the same genre-weakening that helped the pop list, hurting here.
+
+### The finding that matters most
+
+**No weight setting can fix the worst bug in the system.**
+
+*Iron Verdict* rose one place, from #5 to #4, and is still below *Gym Hero* — a bright pop
+track — for a listener who asked for dark intense music. It cannot rise further, because its
+mood is labelled `angry` while the user typed `intense`, so its mood term is `1.5 x 0.0 = 0`.
+**Zero multiplied by any weight is still zero.** I could set the mood weight to 100 and
+*Iron Verdict* would gain nothing.
+
+That reframes the whole experiment. The problem is not that the weights are tuned wrong — it
+is that the *mood comparison itself* is wrong, treating near-synonyms as complete strangers.
+Weight tuning is the wrong tool, and I would have spent a long time adjusting numbers without
+ever fixing it. The real fix is partial credit for related moods, the same rule already
+working for `pop` ~ `indie pop`.
+
+I kept the original weights. The one improvement the change bought was real but narrow, it
+made the lofi list slightly worse, and it left the actual defect untouched.
 
 ---
 

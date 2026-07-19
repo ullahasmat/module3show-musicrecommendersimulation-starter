@@ -41,18 +41,48 @@ My simulation is **purely content-based**, because I only have song attributes a
 stated taste profile — there are no other users to learn from. So I expect to see the
 content-based weaknesses show up clearly, especially the filter bubble.
 
+### The dataset
+
+I expanded `data/songs.csv` from the starter's 10 songs to **20**, adding ids 11–20.
+
+The starter catalog had a problem I only found by checking how its columns related to each
+other: `energy`, `tempo_bpm`, `danceability`, and `acousticness` were almost the same
+number wearing four different labels. Energy and acousticness correlated at **−0.99**, which
+is essentially a straight line — every loud song was electronic and every quiet song was
+acoustic, with no exceptions. Real music isn't like that.
+
+So I chose the new songs' values specifically to break that pattern. *Dust and Diesel* is
+loud **and** acoustic (energy 0.61, acousticness 0.79) — a driving strummed folk track.
+*Slow Burn Letter* is quiet **and** electronic (0.38 / 0.21). *Iron Verdict* is the most
+intense song in the catalog at only 88 BPM, because slow and heavy is a real thing that the
+starter's data said was impossible.
+
+| correlation with `energy` | starter (10 songs) | expanded (20 songs) |
+|---|---|---|
+| `acousticness` | −0.99 | **−0.87** |
+| `tempo_bpm` | 0.96 | **0.78** |
+| `danceability` | 0.86 | **0.62** |
+
+I also widened the valence range from `0.48–0.84` to **`0.15–0.91`**. The starter had no
+genuinely sad music in it — the gloomiest track was merely neutral — so a user asking for
+melancholy music couldn't actually be served.
+
+On genres, I deliberately **repeated** rather than maximizing variety. Ten brand-new genres
+would have meant one song per genre, which turns the genre weight into a filter instead of a
+ranker. Instead the new songs cover six new genres with repeats (hip-hop ×2, folk ×2, r&b ×2,
+plus metal, house, techno, classical). Two new artists also have two songs each, so artist
+de-duplication has something real to act on.
+
 ### What my version prioritizes
 
 I score each song on four things: **genre, mood, energy, and valence.** I deliberately left
-out `tempo_bpm`, `danceability`, and `acousticness` even though they're in the dataset.
-When I checked how the columns relate to each other, those three turned out to track energy
-almost exactly (acousticness moves opposite to energy at a correlation of −0.99). They
-aren't extra information — they're the same "how intense is this song" signal repeated.
-Scoring all of them would have quietly weighted intensity about four times heavier than
-genre without that showing up anywhere in the code. Valence is the one number that behaves
-independently, so it's the one that actually adds something: it separates *Storm Runner*
-(intense and dark) from *Gym Hero* (intense and upbeat), which have nearly identical energy
-but feel nothing alike.
+out `tempo_bpm`, `danceability`, and `acousticness`. Even after expanding the dataset they
+still track energy closely (see the table above), so they aren't extra information — they're
+the same "how intense is this song" signal repeated. Scoring all of them would have quietly
+weighted intensity about four times heavier than genre without that showing up anywhere in
+the code. Valence is the one number that behaves independently, so it's the one that
+actually adds something: it separates *Storm Runner* (intense and dark) from *Gym Hero*
+(intense and upbeat), which have nearly identical energy but feel nothing alike.
 
 For numeric features I score **closeness to what the user asked for**, not raw magnitude.
 Adding `song.energy` straight into the score would just rank the loudest song first no
@@ -71,9 +101,9 @@ gets calm music.
 | `mood` | category | ✅ weight 1.5 |
 | `energy` | 0.0–1.0 | ✅ weight 1.0, closeness |
 | `valence` | 0.0–1.0 | ✅ weight 1.0, closeness |
-| `tempo_bpm` | 60–152 | ❌ correlates 0.96 with energy |
-| `danceability` | 0.0–1.0 | ❌ correlates 0.86 with energy |
-| `acousticness` | 0.0–1.0 | ❌ correlates −0.99 with energy |
+| `tempo_bpm` | 58–152 | ❌ correlates 0.78 with energy |
+| `danceability` | 0.0–1.0 | ❌ correlates 0.62 with energy |
+| `acousticness` | 0.0–1.0 | ❌ correlates −0.87 with energy |
 
 **`UserProfile`**
 
@@ -85,38 +115,112 @@ gets calm music.
 | `target_valence` | Desired positivity, 0.0–1.0 — matched by closeness |
 | `likes_acoustic` | Kept for compatibility, but barely usable (see note below) |
 
-### Scoring and ranking
+The profile I'm testing with:
+
+```python
+user_prefs = {
+    "genre":          "pop",
+    "mood":           "happy",
+    "target_energy":  0.80,
+    "target_valence": 0.75,
+}
+```
+
+I renamed the starter's `"energy"` key to `"target_energy"` on purpose. `energy` reads like
+"this profile has energy 0.8"; `target_energy` says "aim for 0.8", which is what the scoring
+actually does.
+
+### The Algorithm Recipe
 
 I split this into two separate rules, because they answer different questions.
 
-The **scoring rule** looks at one song at a time and asks "how well does this fit?":
-
 ```
-score = 2.0 × genre match      (1.0 exact, 0.5 partial like "pop" vs "indie pop", else 0)
-      + 1.5 × mood match       (1.0 if equal, else 0)
-      + 1.0 × energy closeness
-      + 1.0 × valence closeness
-                                                     maximum possible = 5.5
+SCORING RULE — score(user_prefs, song) -> (score, reasons[])
+
+    2.0 × genre_match      1.0 exact | 0.5 shared word ("pop" ~ "indie pop") | 0.0 none
+  + 1.5 × mood_match       1.0 if equal | 0.0 otherwise
+  + 1.0 × closeness(song.energy,  user.target_energy)
+  + 1.0 × closeness(song.valence, user.target_valence)
+                                                            maximum = 5.5
+
+  closeness(a, b) = exp(-(a - b)² / (2 × 0.25²))     Gaussian falloff, sigma = 0.25
+
+
+RANKING RULE — recommend_songs(user_prefs, songs, k=5) -> [(song, score, explanation)]
+
+  1. score every song in the catalog
+  2. sort by score, descending
+  3. break ties explicitly — closer energy first, then title
+     (never let it fall through to CSV row order)
+  4. optional: at most one song per artist          [diversity]
+  5. return the top k
 ```
 
-The **ranking rule** takes all those scores and decides what to actually show: sort
-descending, break ties on purpose, optionally limit one song per artist, and cut to the top
-k.
+**Why Gaussian instead of `1 - |a - b|`.** With linear falloff, the *worst possible* energy
+match in the catalog still earns about half credit, and enough near-misses stacked together
+can outrank a real match. The Gaussian is forgiving of small misses and harsh on large ones,
+which is what "close to what I asked for" actually means.
 
-I needed both because some decisions are impossible to make one song at a time. Whether to
+**Why closeness and not raw magnitude.** Adding `song.energy` straight into the score would
+rank the loudest song first no matter what the user wanted. A user asking for calm music
+should get calm music.
+
+**Why two rules and not one.** Some decisions can't be made one song at a time. Whether to
 show a second Neon Echo track depends on whether the first one is already in the list, and
 the scoring function only ever sees one song, so it can't know that. Ties matter too — two
 lofi songs scored 5.4841 and 5.4802 for one of my test profiles, a gap that's basically
-noise, and if I don't break that tie deliberately Python just falls back to the order the
-rows appear in the CSV. Scoring measures merit; ranking decides policy.
+noise, and if I don't break that tie deliberately Python falls back to the order the rows
+happen to appear in the CSV. **Scoring measures merit; ranking decides policy.**
+
+**Why mood is 1.5 and not the 1.0 I started with.** Honestly, on a 20-song catalog I can't
+demonstrate that it matters — I tried both and the recommendations came out in the same
+order. I kept 1.5 because a mood match feels like a stronger signal than a single numeric
+feature, but it's a preference I haven't been able to prove.
+
+### Biases I expect to see
+
+I'm writing these down before implementing so I can check whether they actually show up.
+
+**It will over-prioritize genre and miss good mood matches.** Genre is the heaviest term at
+2.0, and because it's mostly all-or-nothing it sorts songs into tiers before anything else
+gets a say. A jazz fan who wants relaxed music will likely get the one jazz song ranked
+first, then whatever else is relaxed — but a genuinely perfect relaxed song in the "wrong"
+genre has to overcome a 2.0-point deficit using terms worth 1.0 each. It probably can't.
+
+**It will build a filter bubble.** This is the core weakness of content-based filtering and
+I've designed it right in: the system can only recommend things resembling what the user
+already said they like. It has no mechanism to introduce anything genuinely new, and no
+concept of a pleasant surprise.
+
+**Rare genres get squeezed.** Even after expanding the dataset, 14 genres across 20 songs
+means most genres have only one or two songs. A metal fan runs out of real matches after one
+song and the rest of the list is padding — songs that scored highest among the leftovers, not
+songs that are actually good for them. The score won't warn anyone that this happened.
+
+**Exact string matching treats near-synonyms as strangers.** `chill`, `relaxed`, and
+`focused` are nearly the same mood, but a "chill" fan gets zero credit for a "relaxed" song.
+I've added partial credit for multi-word genres (`pop` ~ `indie pop`) but there's no
+equivalent for moods.
+
+**A middle-of-the-road user gets close to random results.** Because closeness is symmetric, a
+target sitting in the middle of the range is equidistant from both extremes and can't prefer
+either. Testing `target_energy=0.65` scored chill lofi *higher* than intense rock — the
+opposite of what that user probably wanted. The system only discriminates well when the
+targets are near the edges.
+
+**There's no way to express dislike, and no context.** The profile says what someone wants
+but never what to avoid, and it has no idea whether it's 7am or 11pm. Real taste is
+multi-modal — the same person wants intense rock at the gym and chill lofi while studying —
+and a single point in taste space can't represent that. Asking for the midpoint doesn't give
+you both; it gives you the mediocre middle.
 
 ### Known quirk in the profile
 
-`target_energy` and `likes_acoustic` are almost the same setting in this dataset, since
-energy and acousticness are correlated at −0.99. No song in the catalog is both high-energy
-and highly acoustic, so a profile asking for `target_energy=0.9` **and** `likes_acoustic=True`
-is asking for something that doesn't exist, and will get results matching neither. I'll come
-back to this in the model card.
+`target_energy` and `likes_acoustic` are nearly the same setting, since energy and
+acousticness correlate at −0.87. No song in the catalog is both high-energy and highly
+acoustic, so a profile asking for `target_energy=0.9` **and** `likes_acoustic=True` is asking
+for something that doesn't exist, and will get results matching neither. I'll come back to
+this in the model card.
 
 ---
 
